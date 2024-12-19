@@ -1,5 +1,5 @@
 import Image from "next/image";
-import Recorder from "./components/recorder";
+import Recorder from "../components/recorder";
 
 export default function Home() {
   return (

@@ -1,5 +1,6 @@
 "use client";
 import React, {useEffect, useState, useRef} from "react";
+import { Socket, io } from "socket.io-client";
 
 export default function Recorder () {
     const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
@@ -10,6 +11,10 @@ export default function Recorder () {
     const audioChunks = useRef<Blob[]>([]);
     // define a state to handle the is recording button states
     const [isRecording, setIsRecording] = useState<boolean>(false);
+    // define a reference for the socket 
+    const socket = useRef<Socket | null >(null);
+    // define a state for socket is connected
+    const [isConnected, setIsConnected] = useState<boolean>(false);
 
     // define a function to find the compatible mime type by the browser
     const getCompatibleMime = () => {
@@ -32,6 +37,7 @@ export default function Recorder () {
 
         return null;
     };
+
 
 
     // define a function that handles recording the audio 
@@ -62,7 +68,7 @@ export default function Recorder () {
                 audioChunks.current.push(event.data);
             };
 
-            // start recording the audio 
+            // start recording the audio for 250 seconds 
             recordedMedia.start(250);
 
             // update the isRecording state 
@@ -158,22 +164,58 @@ export default function Recorder () {
     };
 
     
-    
     // clean up the stream when the componenet unmounts 
     useEffect (() => {
+        // creating a socket instance 
+        const newSocket = io("http://127.0.0.1:8000", {
+            transports: ['websocket'],
+            autoConnect: true,
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+        });
+
+        // Add error handling
+        newSocket.on('connect_error', (error) => {
+            console.error('Socket connection error:', error);
+        });
+
+
+        // connect with the server 
+        newSocket.on('connect', () => {
+            console.log("Connected to websocket server");
+            setIsConnected(true);
+        })
+
+        newSocket.on('disconnect', () => {
+            console.log("Disconnected from websocket server");
+            setIsConnected(false);
+        });
+
+        // save scoket reference 
+        socket.current = newSocket
+
         return () => {
+            if (newSocket) {
+                newSocket.disconnect();
+            };
+
             if (audioStream) {
                 audioStream.getTracks().forEach((track) => track.stop());
-            }
+            };
         };
-    }, [audioStream]);
+    }, []);
 
     return (
         <div>
-            <div id="sound-track"></div>
+            <div>
+                <p>Socket status: {isConnected ? 'Connected' : 'Disconnected'}</p>
+            </div>
             <button onClick={handleButton}>
                 {isRecording ? "Stop": "Start"}
             </button>
+
+            
 
             { audioUrl && (
                 <div>
