@@ -2,8 +2,8 @@ from fastapi import APIRouter
 import socketio
 from typing import Any
 import subprocess
-from services import transcribe
 import os
+import whisper
 
 
 # initialize the app router 
@@ -17,6 +17,10 @@ sio = socketio.AsyncServer(
     engineio_logger=True
 )
 
+# initialize the turbo model 
+model = whisper.load_model("turbo")
+if model:
+    print("Whisper model is loaded")
 
 # create ASGI app 
 socket_app = socketio.ASGIApp(
@@ -99,7 +103,7 @@ def compile_buffer (mime_type: str, audio_buffer: list):
     # use ffmpeg to convert the binary to wav format
     try: 
         subprocess.run(
-            ["ffmpeg", "-i", input_file, output_file],
+            ["ffmpeg", "-y", "-i", input_file, output_file],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
@@ -120,17 +124,16 @@ async def audio_data(sid, data: bytes):
     audio_buffer.append(data) 
 
     # compile the audio in the buffer if sixe is morethan 10 
-    if len(audio_buffer) > 5:
+    if len(audio_buffer) > 10:
         audio_wav = compile_buffer(mime_type, audio_buffer)
 
         # transcribe the data recieved from the client
-        transcribed_data = transcribe(audio_wav)
+        transcribed_data = model.transcribe(audio_wav)
 
         print(transcribed_data['text'])
 
     # send a dictionary response to the client that contains the status and message 
-    await sio.emit('audio recieved', {'status': 'sucess', 'message': 'Audio data recieved'}, room=sid)
+    #await sio.emit('audio recieved', {'status': 'sucess', 'message': 'Audio data recieved'}, room=sid)
 
-# compile the blobs in the buffer
-compiled_audio = b"".join(audio_buffer)
+
 
