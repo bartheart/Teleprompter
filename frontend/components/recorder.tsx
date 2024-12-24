@@ -5,10 +5,7 @@ import { Socket, io } from "socket.io-client";
 export default function Recorder () {
     const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
     const [error, setError] = useState<string | null>(null);
-    // define a state to save the audio chunks and the url 
-    const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const audioRef = useRef<MediaRecorder | null>(null);
-    const audioChunks = useRef<Blob[]>([]);
     // define a state to handle the is recording button states
     const [isRecording, setIsRecording] = useState<boolean>(false);
     // define a reference for the socket 
@@ -38,134 +35,11 @@ export default function Recorder () {
         return null;
     };
 
+    // define a function to initialize a socket 
+    const initializeSocket = () => {
+        // dont create a socket if it exists
+        if (socket.current) return;
 
-
-    // define a function that handles recording the audio 
-    const startRecording = (stream: MediaStream) => {
-        // check if usermedia is not available 
-        if (!stream) return;
-
-        try {
-            const mimeType = getCompatibleMime();
-
-            // check if there is any comaptibe mime for the browser 
-            if (!mimeType){
-                throw new Error("No supported audio MIME type found");
-            }
-
-            const options = { mimeType };
-
-            // initialize a Mediarecorder instance with the audiostream 
-            const recordedMedia = new MediaRecorder(stream, options);
-            // update the audio url to the current 
-            audioRef.current = recordedMedia;
-
-            // reset previous chunks 
-            audioChunks.current = []
-
-            // push the recorded media when availabe 
-            recordedMedia.ondataavailable = (event) => {
-                audioChunks.current.push(event.data);
-            };
-
-            // start recording the audio for 250 seconds 
-            recordedMedia.start(250);
-
-            // update the isRecording state 
-            setIsRecording(true);
-
-            console.log("Recording started with mime type: ", {mimeType})
-
-
-
-        } catch (err) {
-            setError("Error starting recording: " + (err as Error).message);
-            console.error("Error starting recording:", err);
-        }
-    }
-
-
-    //define a function to stop recording 
-    const stopRecording = () => {
-        // load the recorded media so far 
-        const recordedMedia = audioRef.current;
-
-        // check if the recordedMedia and the status is active 
-        if (recordedMedia && recordedMedia.state !== 'inactive'){
-            // stop the recording 
-            recordedMedia.stop();
-
-            // update the isRecording state to false
-            setIsRecording(false);
-
-            console.log("Recoding stopped");
-
-            // create a blob and generate a url 
-            recordedMedia.onstop = () => {
-
-                try {
-                    // try to use the started mime type
-                    const mimeType = recordedMedia.mimeType || getCompatibleMime()
-
-                    // create a blob instance with the recorded media 
-                    const audioBlob  =  new Blob(audioChunks.current, {type: mimeType || "audio/webm"});
-
-                    // generate the audio url 
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    // set the state of the url 
-                    setAudioUrl(audioUrl);
-
-                    console.log("Audio recorded and saved!");
-                } catch (err) {
-                    setError("Error saving audio: " + (err as Error).message);
-                    console.error("Error saving audio:", err);
-                }
-                
-            };
-        };
-
-    };
-
-    // define a function to request the mic permission 
-    const handleButton = async () => {
-        if (isRecording) {
-            // stop recording 
-            stopRecording();
-        } else {
-            // Request mic access and start recording
-            if (!audioStream) {
-                try {
-                    // capture the audio stream from the mediadvice api
-                    const stream: MediaStream = await navigator.mediaDevices.getUserMedia({ 
-                        audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        }
-                    });
-                    // set the audiostream state 
-                    setAudioStream(stream);
-                    // start recording 
-                    startRecording(stream);
-                    // feedback regarding the mic acess
-                    console.log("Mic acess granted!")
-        
-                } catch (err) {
-                    const errorMessage = (err as Error).message || "An unknown eror";
-                    // set the error state
-                    setError(errorMessage);
-                    // output the error message 
-                    console.log("Erorr acessing the mic: ", err)
-                };
-            } else {
-                startRecording(audioStream);
-            }
-        } 
-    };
-
-    
-    // clean up the stream when the componenet unmounts 
-    useEffect (() => {
         // creating a socket instance 
         const newSocket = io("http://127.0.0.1:8000", {
             transports: ['websocket'],
@@ -192,17 +66,134 @@ export default function Recorder () {
             setIsConnected(false);
         });
 
+        // get the reponse of the sent audio file 
+        newSocket.on('audio_recieved', (response) => {
+            console.log("Server Response: ", response);
+        });
+       
         // save scoket reference 
         socket.current = newSocket
+    }
 
+
+
+    // define a function that handles recording the audio 
+    const startRecording = (stream: MediaStream) => {
+        // check if usermedia is not available 
+        if (!stream) return;
+
+        try {
+            const mimeType = getCompatibleMime();
+
+            // check if there is any comaptibe mime for the browser 
+            if (!mimeType){
+                throw new Error("No supported audio MIME type found");
+            }
+
+            // initialize a socket and connect 
+            initializeSocket();
+            if (socket.current) {
+                // connect the socket 
+                socket.current.connect();
+                // send the mime type to the backend 
+                socket.current.emit('mime_type', mimeType);
+            };
+
+            const options = { mimeType };
+
+            // initialize a Mediarecorder instance with the audiostream 
+            const recordedMedia = new MediaRecorder(stream, options);
+            // update the audio url to the current 
+            audioRef.current = recordedMedia;
+
+            // push the recorded media when availabe 
+            recordedMedia.ondataavailable = (event) => {
+                const audioChunk = event.data;
+                if (socket.current?.connected && audioChunk.size > 0){
+                    socket.current.emit('audio_data', audioChunk)
+                }
+            };
+
+            // send the audio file every .25 seconds 
+            recordedMedia.start(250);
+
+            // update the isRecording state 
+            setIsRecording(true);
+
+            console.log("Recording started with mime type: ", {mimeType})
+
+        } catch (err) {
+            setError("Error starting recording: " + (err as Error).message);
+            console.error("Error starting recording:", err);
+        }
+    }
+
+
+    //define a function to cleanup resources
+    const cleanUp = () => {
+        // stop the media recorder instance 
+        if (audioRef.current?.state === 'recording') {
+            // stop recording 
+            audioRef.current.stop();
+        };
+        audioRef.current = null;
+
+        // stop all audio tracks
+        if (audioStream) {
+            audioStream.getTracks().forEach((track) => track.stop());
+            setAudioStream(null);
+            console.log("Audio stream cleanedup.")
+        };
+
+        // disconnect the socket 
+        if (socket.current?.connected) {
+            socket.current.disconnect();
+            console.log('Socket disconnected');
+        }
+
+        // set is recording to false
+        setIsRecording(false);
+
+    };
+
+    // define a function to request the mic permission 
+    const handleButton = async () => {
+        if (isRecording) {
+            // stop recording 
+            cleanUp();
+        } else {
+            try {
+                // capture the audio stream from the mediadvice api
+                const stream: MediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                // set the audiostream state 
+                setAudioStream(stream);
+                // start recording 
+                await startRecording(stream);
+    
+            } catch (err) {
+                const errorMessage = (err as Error).message || "An unknown eror";
+                // set the error state
+                setError(errorMessage);
+                // output the error message 
+                console.log("Erorr acessing the mic: ", err)
+            };
+            
+        } 
+    };
+
+    
+    // clean up the stream when the componenet unmounts 
+    useEffect (() => {
+        
         return () => {
-            if (newSocket) {
-                newSocket.disconnect();
-            };
-
-            if (audioStream) {
-                audioStream.getTracks().forEach((track) => track.stop());
-            };
+            cleanUp();
+            socket.current = null;
         };
     }, []);
 
@@ -214,15 +205,6 @@ export default function Recorder () {
             <button onClick={handleButton}>
                 {isRecording ? "Stop": "Start"}
             </button>
-
-            
-
-            { audioUrl && (
-                <div>
-                    <p>Recorded audio:</p>
-                    <audio controls src={audioUrl}></audio>
-                </div>
-            ) }
 
         </div>
     );

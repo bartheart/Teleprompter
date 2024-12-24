@@ -5,10 +5,5 @@ import sounddevice as sd
 model = whisper.load_model("turbo")
 
 # record the audio 
-def transcribe():
-    pass
-
-# transcribe the auido from file/ testing 
-result = model.transcribe(audio)
-
-print(result["text"])
+def transcribe(wav_audio):
+    return model.transcribe(wav_audio)
