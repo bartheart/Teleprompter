@@ -1,6 +1,5 @@
 "use client";
 import React, {useEffect, useState, useRef} from "react";
-import { Socket, io } from "socket.io-client";
 
 export default function Recorder () {
     const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
@@ -9,7 +8,7 @@ export default function Recorder () {
     // define a state to handle the is recording button states
     const [isRecording, setIsRecording] = useState<boolean>(false);
     // define a reference for the socket 
-    const socket = useRef<Socket | null >(null);
+    const websocketRef = useRef<WebSocket | null >(null);
     // define a state for socket is connected
     const [isConnected, setIsConnected] = useState<boolean>(false);
 
@@ -38,41 +37,38 @@ export default function Recorder () {
     // define a function to initialize a socket 
     const initializeSocket = () => {
         // dont create a socket if it exists
-        if (socket.current) return;
+        if (websocketRef.current?.readyState === WebSocket.OPEN) return websocketRef.current;
 
         // creating a socket instance 
-        const newSocket = io("http://127.0.0.1:8000", {
-            transports: ['websocket'],
-            autoConnect: true,
-            reconnection: true,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000,
-        });
+        const websocket = new WebSocket("http://127.0.0.1:8000");
 
         // Add error handling
-        newSocket.on('connect_error', (error) => {
+        websocket.onerror = (error) => {
             console.error('Socket connection error:', error);
-        });
+            setError("Websocket connection faliure");
+        };
 
 
-        // connect with the server 
-        newSocket.on('connect', () => {
+        // establish a connection of the socket  
+        websocket.onopen =  () => {
             console.log("Connected to websocket server");
             setIsConnected(true);
-        })
+            websocketRef.current = websocket;
+        };
 
-        newSocket.on('disconnect', () => {
+        // disconnect the socket 
+        websocket.onclose = () => {
             console.log("Disconnected from websocket server");
             setIsConnected(false);
-        });
+            websocketRef.current = null;
+        };
 
-        // get the reponse of the sent audio file 
-        newSocket.on('audio_recieved', (response) => {
-            console.log("Server Response: ", response);
-        });
+        // // get the reponse of the sent audio file 
+        // newSocket.on('audio_recieved', (response) => {
+        //     console.log("Server Response: ", response);
+        // });
        
-        // save scoket reference 
-        socket.current = newSocket
+        return websocket;
     }
 
 
@@ -92,35 +88,34 @@ export default function Recorder () {
 
             // initialize a socket and connect 
             initializeSocket();
-            if (socket.current) {
-                // connect the socket 
-                socket.current.connect();
-                // send the mime type to the backend 
-                socket.current.emit('mime_type', mimeType);
+            if (websocketRef.current?.readyState === WebSocket.OPEN) {
+                // send the mime type to the backend as JSON
+                websocketRef.current.send(JSON.stringify({
+                    type: 'mime_type',
+                    mimeType: mimeType
+                }));
             };
 
-            const options = { mimeType };
-
             // initialize a Mediarecorder instance with the audiostream 
-            const recordedMedia = new MediaRecorder(stream, options);
+            const recordedMedia = new MediaRecorder(stream, { mimeType });
             // update the audio url to the current 
             audioRef.current = recordedMedia;
 
             // push the recorded media when availabe 
             recordedMedia.ondataavailable = (event) => {
                 const audioChunk = event.data;
-                if (socket.current?.connected && audioChunk.size > 0){
-                    socket.current.emit('audio_data', audioChunk)
+                if (websocketRef.current?.readyState === WebSocket.OPEN && audioChunk.size > 0){
+                    websocketRef.current.send(audioChunk);
                 }
             };
 
-            // send the audio file every .25 seconds 
-            recordedMedia.start(250);
+            // send the audio file every .1 seconds 
+            recordedMedia.start(100);
 
             // update the isRecording state 
             setIsRecording(true);
 
-            console.log("Recording started with mime type: ", {mimeType})
+            console.log("Recording started with mime type: ", mimeType);
 
         } catch (err) {
             setError("Error starting recording: " + (err as Error).message);
@@ -146,8 +141,9 @@ export default function Recorder () {
         };
 
         // disconnect the socket 
-        if (socket.current?.connected) {
-            socket.current.disconnect();
+        if (websocketRef.current) {
+            websocketRef.current.close();
+            websocketRef.current = null;
             console.log('Socket disconnected');
         }
 
@@ -193,7 +189,6 @@ export default function Recorder () {
         
         return () => {
             cleanUp();
-            socket.current = null;
         };
     }, []);
 

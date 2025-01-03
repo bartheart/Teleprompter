@@ -139,7 +139,7 @@ async def audio_data(sid, data: bytes):
     # append the audio blobs into the buffer 
     audio_buffer.append(data) 
 
-    # compile the audio in the buffer if sixe is morethan 10 
+    # compile the audio in the buffer if size is morethan 10 
     print(len(audio_buffer))
     if len(audio_buffer) == 20:
         is_processing = True 
