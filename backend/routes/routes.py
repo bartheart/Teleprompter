@@ -1,5 +1,4 @@
-from fastapi import APIRouter
-import socketio
+from fastapi import APIRouter, webSocket
 from typing import Any
 import subprocess
 import os
@@ -9,24 +8,10 @@ import whisper
 # initialize the app router 
 router = APIRouter()
 
-# create the socket instance with ASGI support 
-sio = socketio.AsyncServer(
-    async_mode='asgi',
-    cors_allowed_origins='*',
-    logger=True,
-    engineio_logger=True
-)
-
 # initialize the turbo model 
 model = whisper.load_model("turbo")
 if model:
     print("Whisper model is loaded")
-
-# create ASGI app 
-socket_app = socketio.ASGIApp(
-    socketio_server=sio,
-    other_asgi_app=router
-)
 
 
 # define the home route 
@@ -35,38 +20,14 @@ async def Home():
     return "Home route"
 
 
-# socket io event handlers 
-@sio.event
-async def connect(sid, environ):
-    print(f"Client connected: {sid}")
-    await sio.emit('connect_response', {'status': 'connected'}, room=sid)
-
-@sio.event
-async def disconnect(sid):
-    print(f"Client disconnected: {sid}")
-
-
-
-
-
-
-
-
-
-
 # define a mime type var for the audio blobs 
 mime_type = ''
-
-# to get the mime/ audio format from the browser
-@sio.event 
-async def mime_type(sid, type: str):
-    global mime_type
-    print(f"Server recieved the mime type of {type}")
-    mime_type = type
 
 
 # define a audio buffer for the blob data 
 audio_buffer = []
+
+is_processing = False
 
 # define a fcuntion to compile the audio blobs
 def compile_buffer (mime_type: str, audio_buffer: list):
@@ -107,8 +68,7 @@ def compile_buffer (mime_type: str, audio_buffer: list):
         process = subprocess.run(
             ["ffmpeg", "-y", "-i", input_file, output_file],
             check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            capture_output=True
         )
          
         if process.returncode == 0:
@@ -123,40 +83,44 @@ def compile_buffer (mime_type: str, audio_buffer: list):
         if os.path.exists(input_file):
             os.remove(input_file)
 
-    
-is_processing = False
 
-# handle the event of sending audio packets 
-@sio.event
-async def audio_data(sid, data: bytes):
-    global is_processing
+# definen a route for the audio processing 
+@router.websocket('/ws')
+async def audio_data(websocket: webSocket):
     print(f"Recieved an audio from client: {len(data)} bytes")
+    global audio_buffer, is_processing, mime_type
+    
+    # await fot socket connection 
+    await websocket.accept()
 
-    if is_processing:
-        print("Process in progress")
-        return 
+    try:
+        while True:
+            # handle the raw audio blob
+            chunk = await websocket.receive_bytes()
 
-    # append the audio blobs into the buffer 
-    audio_buffer.append(data) 
+            # append the audio blobs into the buffer 
+            audio_buffer.append(chunk) 
 
-    # compile the audio in the buffer if size is morethan 10 
-    print(len(audio_buffer))
-    if len(audio_buffer) == 20:
-        is_processing = True 
+             # compile the audio in the buffer if size is morethan 10 
+            if len(audio_buffer) == 10:
+                if not is_processing:
+                    is_processing = True 
 
-        try: 
-            audio_wav = compile_buffer(mime_type, audio_buffer)
-            if audio_wav:
-                # transcribe the data recieved from the client
-                transcribed_data = model.transcribe(audio_wav)
+                    try: 
+                        audio_wav = compile_buffer(mime_type, audio_buffer)
+                        if audio_wav:
+                            # transcribe the data recieved from the client
+                            transcribed_data = model.transcribe(audio_wav)
 
-                print(transcribed_data['text'])
-            audio_buffer.clear()
-        finally:
-            is_processing = False
+                            print(transcribed_data['text'])
+                        audio_buffer.clear()
+                    finally:
+                        is_processing = False
 
-    # send a dictionary response to the client that contains the status and message 
-    #await sio.emit('audio recieved', {'status': 'sucess', 'message': 'Audio data recieved'}, room=sid)
+    except Exception as e:
+        print(f"Error: {e}")
+
+   
 
 
 
