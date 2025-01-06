@@ -40,7 +40,7 @@ export default function Recorder () {
         if (websocketRef.current?.readyState === WebSocket.OPEN) return websocketRef.current;
 
         // creating a socket instance 
-        const websocket = new WebSocket("http://127.0.0.1:8000");
+        const websocket = new WebSocket("ws://127.0.0.1:8000/ws");
 
         // Add error handling
         websocket.onerror = (error) => {
@@ -89,11 +89,8 @@ export default function Recorder () {
             // initialize a socket and connect 
             initializeSocket();
             if (websocketRef.current?.readyState === WebSocket.OPEN) {
-                // send the mime type to the backend as JSON
-                websocketRef.current.send(JSON.stringify({
-                    type: 'mime_type',
-                    mimeType: mimeType
-                }));
+                // send the mime type to the backend 
+                websocketRef.current.send(mimeType);
             };
 
             // initialize a Mediarecorder instance with the audiostream 
