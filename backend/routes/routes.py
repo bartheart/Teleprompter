@@ -3,6 +3,7 @@ from typing import Any
 import subprocess
 import os
 import whisper
+import json 
 
 
 # initialize the app router 
@@ -93,35 +94,43 @@ async def audio_data(websocket: WebSocket):
     await websocket.accept()
 
     try:
-
-        # get the initial mime type 
-        mime_type = await websocket.receive_text()
-        print(f"Received MIME type: {mime_type}")
-
         while True:
-            # handle the raw audio blob
-            chunk = await websocket.receive_bytes()
 
-            if not is_processing and chunk:
-                # append the audio blobs into the buffer 
-                audio_buffer.append(chunk) 
+            message = await websocket.receive()
 
-                # compile the audio in the buffer if size is morethan 10 
-                if len(audio_buffer) == 10:
-                    if not is_processing:
-                        is_processing = True 
+            # Check message type
+            if message['type'] == 'text':
+                # Parse the JSON message for MIME type
+                data = json.loads(message['text'])
+                if data['type'] == 'mime':
+                    mime_type = data['mimeType']
+                    print(f"Received MIME type: {mime_type}")
 
-                        try: 
-                            audio_wav = compile_buffer(mime_type, audio_buffer)
-                            if audio_wav:
-                                # transcribe the data recieved from the client
-                                transcribed_data = model.transcribe(audio_wav)
-                                print("shushi")
-                                print(transcribed_data['text'])
-                                print("i eat")
-                            audio_buffer.clear()
-                        finally:
-                            is_processing = False
+            elif message['type'] == 'bytes':
+
+                # handle the raw audio blob
+                chunk = message['bytes']
+
+                if not is_processing and chunk:
+                    # append the audio blobs into the buffer 
+                    audio_buffer.append(chunk) 
+
+                    # compile the audio in the buffer if size is morethan 10 
+                    if len(audio_buffer) == 10:
+                        if not is_processing:
+                            is_processing = True 
+
+                            try: 
+                                audio_wav = compile_buffer(mime_type, audio_buffer)
+                                if audio_wav:
+                                    # transcribe the data recieved from the client
+                                    transcribed_data = model.transcribe(audio_wav)
+                                    print("shushi")
+                                    print(transcribed_data['text'])
+                                    print("i eat")
+                                audio_buffer.clear()
+                            finally:
+                                is_processing = False
 
     except Exception as e:
         print(f"Error: {e}")
