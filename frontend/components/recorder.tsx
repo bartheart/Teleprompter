@@ -80,7 +80,6 @@ export default function Recorder () {
 
         try {
             const mimeType = getCompatibleMime();
-            console.log(mimeType);
 
             // check if there is any comaptibe mime for the browser 
             if (!mimeType){
@@ -91,10 +90,7 @@ export default function Recorder () {
             initializeSocket();
             if (websocketRef.current?.readyState === WebSocket.OPEN) {
                 // send the mime type to the backend in json 
-                websocketRef.current.send(JSON.stringify({
-                    type: 'mime',
-                    mimeType: mimeType
-                }));
+                websocketRef.current.send(mimeType);
             };
 
             // initialize a Mediarecorder instance with the audiostream 

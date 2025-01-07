@@ -89,6 +89,7 @@ def compile_buffer (mime_type: str, audio_buffer: list):
 @router.websocket('/ws')
 async def audio_data(websocket: WebSocket):
     global audio_buffer, is_processing, mime_type
+    first_chunk = True 
     
     # await fot socket connection 
     await websocket.accept()
@@ -96,12 +97,15 @@ async def audio_data(websocket: WebSocket):
     try:
         while True:
 
-            message = await websocket.receive()
+            message = await websocket.receive_bytes()
+            print(message)
+            text_msg = await websocket.receive()
+            print(text_msg)
 
             # Check message type
-            if message['type'] == 'text':
+            if message['type'] == 'mime':
                 # Parse the JSON message for MIME type
-                data = json.loads(message['text'])
+                data = json.loads(message['mime'])
                 if data['type'] == 'mime':
                     mime_type = data['mimeType']
                     print(f"Received MIME type: {mime_type}")
