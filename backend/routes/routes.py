@@ -1,11 +1,7 @@
 from fastapi import APIRouter
 import socketio
 from typing import Any
-import whisper
-from io import BytesIO
-import numpy as np 
-from pydub import AudioSegment
-
+from services.audio_processor import AudioProcessor
 
 # initialize the app router 
 router = APIRouter()
@@ -17,11 +13,6 @@ sio = socketio.AsyncServer(
     logger=True,
     engineio_logger=True
 )
-
-# initialize the turbo model 
-model = whisper.load_model("turbo")
-if model:
-    print("Whisper model is loaded")
 
 # create ASGI app 
 socket_app = socketio.ASGIApp(
@@ -48,71 +39,23 @@ async def disconnect(sid):
 
 
 
-# define a mime type var for the audio blobs 
-mime_extension = ''
+
+# define the audio processor class
+audio_processor = AudioProcessor()
+
 
 # to get the mime/ audio format from the browser
 @sio.event 
-async def mime_type(sid, type: str):
-    global mime_extension
+async def mime_type(sid, mime_type: str):
+    """
+    get the mime type of the audio format
+    """
+    audio_processor.update_mime_type(mime_type)
 
-    # define a mime to type dictionary 
-    mime_to_extension = {
-        'audio/webm': 'webm',
-        'audio/webm;codecs=opus': 'webm',
-        'audio/mp4': 'mp4',
-        'audio/mp4;codecs=opus': 'mp4',
-        'audio/ogg': 'ogg',
-        'audio/ogg;codecs=opus': 'ogg',
-    }
-
-    # initialize a default extension type 
-    extension_type = mime_to_extension.get(type, 'bin')
-
-    #print(f"Server recieved the mime type of {extension_type}")
-    mime_extension = extension_type
-
-
-# define a audio buffer for the blob data 
-audio_buffer = BytesIO()
-
-# define the sample rate
-SAMPLE_RATE = 16000
-    
-is_processing = False
 
 # handle the event of sending audio packets 
 @sio.event
-async def audio_data(sid, data: bytes):
-    global is_processing, audio_buffer
-    #print(f"Recieved an audio from client: {len(data)} bytes")
-
-    if is_processing:
-        #print("Process in progress")
-        return 
-
-    # append the audio blobs into the buffer 
-    audio_buffer.write(data) 
-
-    # check if the buffer is full 
-    if audio_buffer.tell() >= SAMPLE_RATE:
-        is_processing = True 
-
-        # convert to numpy array 
-        audio_buffer.seek(0)
-        audio_segment = AudioSegment.from_file(
-            audio_buffer,
-            codec="opus",  
-            format=mime_extension, 
-            parameters=["-ar", str(SAMPLE_RATE)]
-        )
-
-        # get numpy array 
-        samples = np.array(audio_segment.get_array_of_samples(), dtype=np.float32) / 32768.0
-
-        # transcribe from the nunmpy array
-        transcription = model.transcribe(samples).get("text", "")
-        print(transcription)
-
-        # reset the buffer 
-        audio_buffer = BytesIO()
+async def audio_data(sid, audio_chunk: bytes):
+    audio_processor.add_chunk_to_buffer(audio_chunk)
+    context = audio_processor.get_context()
+    print(context)
