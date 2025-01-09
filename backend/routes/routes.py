@@ -1,8 +1,6 @@
 from fastapi import APIRouter
 import socketio
 from typing import Any
-import subprocess
-import os
 import whisper
 from io import BytesIO
 import numpy as np 
@@ -50,13 +48,6 @@ async def disconnect(sid):
 
 
 
-
-
-
-
-
-
-
 # define a mime type var for the audio blobs 
 mime_extension = ''
 
@@ -84,10 +75,9 @@ async def mime_type(sid, type: str):
 
 # define a audio buffer for the blob data 
 audio_buffer = BytesIO()
+
+# define the sample rate
 SAMPLE_RATE = 16000
-
-
-
     
 is_processing = False
 
@@ -105,9 +95,8 @@ async def audio_data(sid, data: bytes):
     audio_buffer.write(data) 
 
     # check if the buffer is full 
-    if audio_buffer.tell() >= SAMPLE_RATE * 2:
+    if audio_buffer.tell() >= SAMPLE_RATE:
         is_processing = True 
-        #print("Lets go")
 
         # convert to numpy array 
         audio_buffer.seek(0)
@@ -119,23 +108,11 @@ async def audio_data(sid, data: bytes):
         )
 
         # get numpy array 
-        samples = np.array(audio_segment.get_array_of_samples())
-
-      
-        # Convert to float32 and normalize to [-1, 1]
-        samples = samples.astype(np.float32) / 32768.0
+        samples = np.array(audio_segment.get_array_of_samples(), dtype=np.float32) / 32768.0
 
         # transcribe from the nunmpy array
-        transcription = model.transcribe(samples)
+        transcription = model.transcribe(samples).get("text", "")
         print(transcription)
 
         # reset the buffer 
         audio_buffer = BytesIO()
-
-        
-
-    # send a dictionary response to the client that contains the status and message 
-    #await sio.emit('audio recieved', {'status': 'sucess', 'message': 'Audio data recieved'}, room=sid)
-
-
-
