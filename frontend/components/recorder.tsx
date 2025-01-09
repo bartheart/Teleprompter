@@ -99,7 +99,11 @@ export default function Recorder () {
                 socket.current.emit('mime_type', mimeType);
             };
 
-            const options = { mimeType };
+            const options = { 
+                mimeType: mimeType,
+                audioBitsPerSecond: 16000,  
+                channelCount: 1 
+            };
 
             // initialize a Mediarecorder instance with the audiostream 
             const recordedMedia = new MediaRecorder(stream, options);
@@ -114,8 +118,8 @@ export default function Recorder () {
                 }
             };
 
-            // send the audio file every .25 seconds 
-            recordedMedia.start(250);
+            // send the audio file every 100ms 
+            recordedMedia.start(100);
 
             // update the isRecording state 
             setIsRecording(true);
