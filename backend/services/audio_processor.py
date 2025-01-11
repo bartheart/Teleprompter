@@ -1,4 +1,4 @@
-from queue import Queue
+from queue import Queue, Empty
 from collections import deque
 from multiprocessing import Pool, Queue as MPqueue
 from threading import Thread, Lock
@@ -10,17 +10,19 @@ import whisper
 class AudioProcessor:
     def __init__ (self):
         """
-        buffer and result queues to store the audio
+        audio buffer - queue, max length: 30 => 3 seconds audio 
+        result queue - queue, max length not capped
         context - deque to serve as rolling window 
         pool size of 5 -> 5 cores to process the transctiption
         """
-        self.buffer_queue = Queue(maxsize= 30)
+        self.buffer_queue = Queue(maxsize= 30) 
         self.result_queue = Queue()
         self.context = deque(maxlen=45)
         self.context_lock = Lock()
         self.process_pool = Pool(processes=5)
         self.sequence_counter = 0
         self.sample_rate = "16000"
+        self.min_chunk_to_process = 10
         self.mime_type = ''
 
         # start the worker thread
@@ -67,10 +69,54 @@ class AudioProcessor:
         process the audio chunks in the buffer queue
         """
         while True:
-            sequence_number, audio_chunk = self.buffer_queue.get()
-            audio_transcription = self.process_pool.apply_async(self._transcribe_chunk(audio_chunk))
-            self._handle_result(audio_transcription.get(), sequence_number)
+            
+            try:
+                audio_buffer, last_sequence_number = self._collect_chunks_from_queue()
 
+                # compile parameters to pass to the process pool 
+                audio_params = {
+                    'chunk': audio_buffer.getvalue(),
+                    'mime_type': self.mime_type,
+                    'sample_rate': self.sample_rate,
+                }
+
+                audio_transcription = self.process_pool.apply_async(self._transcribe_chunk, (audio_params, ))
+            
+            
+                self._handle_result(audio_transcription.get(), last_sequence_number)
+            
+            except Exception as e:
+                continue
+
+    
+    def _collect_chunks_from_queue(self) -> tuple[BytesIO, int]:
+        """
+        collect the chunks from the buffer queue
+        """
+        audio_buffer = BytesIO()
+        chunks_processed = 0
+        last_sequence = None
+
+        try:
+            while chunks_processed < self.min_chunk_to_process:
+                try: 
+                    sequence, chunk = self.buffer_queue.get(timeout=0.1)
+                    audio_buffer.write(chunk)
+                    last_sequence = sequence
+                    chunks_processed += 1
+                except Empty:
+                    if chunks_processed > 0:
+                        break
+                    raise
+            
+            audio_buffer.seek(0)
+            return audio_buffer, last_sequence
+        except Exception as e:
+            if chunks_processed > 0:
+                audio_buffer.seek(0)
+                return audio_buffer, last_sequence
+            raise
+    
 
     def _handle_result(self, text: str, sequence_number: int):
         """
@@ -91,18 +137,32 @@ class AudioProcessor:
             return " ".join(self.context)   
 
 
-
-    def _transcribe_chunk(self, audio_chunk: bytes) -> str:
+    @staticmethod
+    def _transcribe_chunk(params) -> str:
         """
         transcribe the audio chunk
         """
-        audio_buffer = BytesIO(audio_chunk)
-        audio_segment = AudioSegment.from_file(
-            audio_buffer,
-            codec= 'opus',
-            format = self.mime_type,
-            parameters=["-ar", self.sample_rate]
-        )   
+        if not params['chunk']:
+            raise Exception("No audio chunk found")
+        
+        audio_buffer = BytesIO(params['chunk'])
 
-        samples = np.array(audio_segment.get_array_of_samples(), dtype=np.float32)/32768.0
-        return self.model.transcribe(samples).get("text", "No text found")
+        try: 
+            audio_segment = AudioSegment.from_file(
+                audio_buffer,
+                codec='opus',
+                format=params['mime_type'],
+                parameters=[
+                    "-ar", str(params.get('sample_rate', '16000')),
+                    "-ac", "1"  # Force mono channel
+                ]
+            )   
+
+            samples = np.array(audio_segment.get_array_of_samples(), dtype=np.float32)/32768.0
+            
+            # Load model in worker process
+            model = whisper.load_model("turbo")
+            return model.transcribe(samples).get("text", "No text found")
+        except Exception as e:
+            print(f"Audio processing error: {e}")
+            return "No text found"
