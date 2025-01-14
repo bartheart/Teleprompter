@@ -21,6 +21,7 @@ h11==0.14.0
 huggingface-hub==0.27.1
 humanfriendly==10.0
 idna==3.10
+iniconfig==2.0.0
 Jinja2==3.1.4
 llvmlite==0.43.0
 MarkupSafe==3.0.2
@@ -33,6 +34,7 @@ onnxruntime==1.19.2
 openai-whisper @ git+https://github.com/openai/whisper.git@90db0de1896c23cbfaf0c58bc2d30665f709f170
 packaging==24.2
 pillow==11.1.0
+pluggy==1.5.0
 protobuf==5.29.2
 pyarrow==18.1.0
 pycparser==2.22
@@ -41,6 +43,7 @@ pydantic-settings==2.7.0
 pydantic_core==2.27.1
 pydub==0.25.1
 pylance==0.20.0
+pytest==8.3.4
 python-dotenv==1.0.1
 python-engineio==4.11.1
 python-socketio==5.12.0
@@ -54,6 +57,7 @@ starlette==0.41.3
 sympy==1.13.1
 tiktoken==0.8.0
 tokenizers==0.21.0
+tomli==2.2.1
 torch==2.5.1
 torchaudio==2.5.1
 torchvision==0.20.1

@@ -21,8 +21,8 @@ class AudioProcessor:
         self.context_lock = Lock()
         self.process_pool = Pool(processes=5)
         self.sequence_counter = 0
-        self.sample_rate = "16000"
-        self.min_chunk_to_process = 10
+        self.sample_rate = 16000
+        self.min_chunk_to_process = 100
         self.mime_type = ''
 
         # start the worker thread
@@ -62,6 +62,12 @@ class AudioProcessor:
             self.sequence_counter += 1  
         except Queue.full:
             pass
+
+    def _get_buffer_queue_size (self) -> int:
+        """
+        get the size of the buffer queue
+        """
+        return self.buffer_queue.qsize()
             
 
     def _process_chunks(self):
@@ -96,6 +102,9 @@ class AudioProcessor:
         audio_buffer = BytesIO()
         chunks_processed = 0
         last_sequence = None
+        retry_count = 0
+        max_retries = 3
+
 
         try:
             while chunks_processed < self.min_chunk_to_process:
@@ -104,10 +113,19 @@ class AudioProcessor:
                     audio_buffer.write(chunk)
                     last_sequence = sequence
                     chunks_processed += 1
-                except Empty:
-                    if chunks_processed > 0:
+
+                    if chunks_processed >= 10:
                         break
-                    raise
+                except Empty:
+                    if chunks_processed < 10:
+                        if retry_count < max_retries:
+                            retry_count += 1
+                            continue
+                        if chunks_processed > 0:
+                            break
+                    else:
+                        break
+                    
             
             audio_buffer.seek(0)
             return audio_buffer, last_sequence
@@ -143,23 +161,33 @@ class AudioProcessor:
         transcribe the audio chunk
         """
         if not params['chunk']:
+            print("Empty chunk received")
             raise Exception("No audio chunk found")
         
         audio_buffer = BytesIO(params['chunk'])
 
         try: 
+            print(f"Processing chunk size: {len(params['chunk'])} bytes")
+            print(f"Mime type: {params['mime_type']}")
+
             audio_segment = AudioSegment.from_file(
                 audio_buffer,
                 codec='opus',
                 format=params['mime_type'],
                 parameters=[
+                    "-loglevel", "debug", 
                     "-ar", str(params.get('sample_rate', '16000')),
-                    "-ac", "1"  # Force mono channel
+                    "-ac", "1",  # Force mono channel
+                    "-vn",
+                    "-fflags", "+igndts",  # Add tolerance for timestamp errors
+                    "-flags", "low_delay"
                 ]
             )   
+            print(f"Audio segment created successfully: {len(audio_segment)} ms")
 
             samples = np.array(audio_segment.get_array_of_samples(), dtype=np.float32)/32768.0
-            
+            print(f"Samples shape: {samples.shape}")
+
             # Load model in worker process
             model = whisper.load_model("turbo")
             return model.transcribe(samples).get("text", "No text found")
