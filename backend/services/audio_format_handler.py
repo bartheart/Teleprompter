@@ -4,8 +4,6 @@ from io import BytesIO
 from pydub import AudioSegment
 import numpy as np 
 import logging
-import pytest
-from unittest.mock import patch, Mock
 
 
 class AudioFormatError(Exception):
@@ -74,5 +72,3 @@ class AudioFormatHandler:
         except Exception as e:
             self.logger.error(f"Failed to convert audio to numpy: {e}")
             raise ConversionError(f"Failed to convert audio to numpy: {e}")
-            
-

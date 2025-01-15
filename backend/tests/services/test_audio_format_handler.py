@@ -76,6 +76,35 @@ def test_audio_to_numpy_conversion():
         assert call_args['codec'] == 'opus'
 
 
+def test_conversion_error():
+    """
+    test audio conversion faliure
+    """
+    format_handler = AudioFormatHandler()
+    audio_format = format_handler.validate_audio_format('audio/webm;codecs=opus')
+    test_audio = create_test_audio()
+
+    with patch('pydub.AudioSegment.from_file') as mock_from_file:
+        mock_from_file.side_effect = Exception("Conversion failed")
+
+
+        with pytest.raises(ConversionError) as exc_info:
+            format_handler.convert_audio_to_numpy(test_audio, audio_format)
+        assert "Failed to convert audio to numpy"
+
+
+@pytest.mark.integration 
+def test_empty_audio_conversion_error():
+    """
+    test conversion with empty audio data 
+    """
+    format_handler = AudioFormatHandler()
+    audio_format = format_handler.validate_audio_format('audio/webm;codecs=opus')
+    empty_data = BytesIO(b"")
+
+    with pytest.raises(ConversionError):
+        format_handler.convert_audio_to_numpy(empty_data, audio_format)
+
 
 if __name__ == '__main__':
     pytest.main([__file__])
