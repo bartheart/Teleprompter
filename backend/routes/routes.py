@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 import socketio
 from typing import Any
-from services.audio_processor import AudioProcessor
+from backend.services.audio_processor_2 import AudioProcessor
 
 # initialize the app router 
 router = APIRouter()
